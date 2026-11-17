@@ -27,6 +27,7 @@
 
 #include "gridsearch.h"
 #include "archivelite.h"
+#include "candfile.h"
 #include "dedispersionX.h"
 #include "databuffer.h"
 #include "downsample.h"
@@ -75,6 +76,7 @@ int main(int argc, const char *argv[])
 			("f0", value<double>()->default_value(0), "F0 (Hz)")
 			("f1", value<double>()->default_value(0), "F1 (Hz/s)")
 			("f2", value<double>()->default_value(0), "F2 (Hz/s/s)")
+			("fn", value<std::string>(), "Higher frequency derivatives F3,F4,... separated by commas (Hz/s^3,Hz/s^4,...)")
 			("acc", value<double>()->default_value(0), "Acceleration (m/s/s)")
 			("binary", "Fold binary pulsar")
 			("PB", value<double>(), "The orbital period (day)")
@@ -93,7 +95,7 @@ int main(int argc, const char *argv[])
 			("noarch", "Do not generate archives")
 			("parfile", value<vector<string>>(), "Input pulsar par files")
 			("t2pred", value<vector<string>>(), "Input t2pred files")
-			("candfile", value<string>(), "Input cand file")
+			("candfile", value<string>(), "Input cand file (columns from its #id header, or by number: id DM acc F0 F1 [F2 ... Fn] S/N)")
 			("template", value<string>(), "Input fold template file")
 			("nbin,b", value<int>()->default_value(32), "Number of bins per period")
 			("nbinplan", value<vector<float>>()->multitoken()->default_value(vector<float>{0.1, 128}, "0.1, 128"), "Using nbins of nbin,nbin1,nbin2,... for 0,p1,p2,... (s)")
@@ -895,6 +897,16 @@ void produce(variables_map &vm, std::list<double> &dmlist, vector<Pulsar::Archiv
 	fdr.f0 = vm["f0"].as<double>();
 	fdr.f1 = vm["f1"].as<double>();
 	fdr.f2 = vm["f2"].as<double>();
+	if (vm.count("fn"))
+	{
+		std::vector<std::string> items;
+		std::string s_fn = vm["fn"].as<std::string>();
+		boost::split(items, s_fn, boost::is_any_of(", "), boost::token_compress_on);
+		for (auto item=items.begin(); item!=items.end(); ++item)
+		{
+			if (!item->empty()) fdr.fhigh.push_back(stod(*item));
+		}
+	}
 	fdr.acc = vm["acc"].as<double>();
 	fdr.nbin = vm["nbin"].as<int>();
 
@@ -927,58 +939,24 @@ void produce(variables_map &vm, std::list<double> &dmlist, vector<Pulsar::Archiv
 	if (vm.count("candfile"))
 	{
 		string filename = vm["candfile"].as<string>();
-		string line;
-		ifstream candfile(filename);
-		
-		dmlist.clear();
-		while (getline(candfile, line))
+		std::vector<Pulsar::ArchiveLite> cands;
+		try
 		{
-			boost::trim(line);
-			if(!isdigit(line[0])) continue;
-			
-			vector<string> parameters;
-			boost::split(parameters, line, boost::is_any_of("\t "), boost::token_compress_on);
+			Pulsar::CandFile cf;
+			cands = cf.read(filename, fdr);
+		}
+		catch (const std::exception &e)
+		{
+			BOOST_LOG_TRIVIAL(error)<<e.what();
+			exit(-1);
+		}
 
-			dmlist.push_back(stod(parameters[1]));
+		dmlist.clear();
+		for (auto cand=cands.begin(); cand!=cands.end(); ++cand)
+		{
+			fdr = *cand;
 
-			if (parameters.size() == 6)
-			{
-				fdr.dm = stod(parameters[1]);
-				fdr.acc = stod(parameters[2]);
-				fdr.f0 = stod(parameters[3]);
-				fdr.f1 = stod(parameters[4]);
-				fdr.snr = stod(parameters[5]);
-			}
-			else if (parameters.size() == 7)
-			{
-				fdr.dm = stod(parameters[1]);
-				fdr.acc = stod(parameters[2]);
-				fdr.f0 = stod(parameters[3]);
-				fdr.f1 = stod(parameters[4]);
-				fdr.f2 = stod(parameters[5]);
-				fdr.snr = stod(parameters[6]);
-			}
-			else if (parameters.size() == 12)
-			{
-				fdr.dm = stod(parameters[1]);
-				fdr.acc = stod(parameters[2]);
-				fdr.f1 = stod(parameters[4]);
-				fdr.f2 = stod(parameters[5]);
-				
-				std::vector<double> kepler_params{
-					stod(parameters[3]),
-					stod(parameters[6]),
-					stod(parameters[7]),
-					stod(parameters[8]),
-					stod(parameters[9]),
-					stod(parameters[10])
-				};
-
-				fdr.orb = Pulsar::Kepler(kepler_params);
-				fdr.use_kepler = true;
-
-				fdr.snr = stod(parameters[11]);
-			}
+			dmlist.push_back(fdr.dm);
 			
 			fdr.nbin = vm["nbin"].as<int>();
 

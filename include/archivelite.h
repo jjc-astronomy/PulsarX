@@ -89,6 +89,37 @@ namespace Pulsar
 			outfile.close();
 		}
 		void read_archive(const std::string &fname);
+		/**
+		 * @brief phase (turns) of the spin polynomial at t seconds from the reference epoch
+		 * phase = sum_k Fk * t^(k+1) / (k+1)!, with F0, F1, F2 and the higher derivatives in fhigh
+		 */
+		long double get_poly_phase(long double t) const
+		{
+			long double phi = 0.;
+			for (long int k=fhigh.size()-1; k>=0; k--)
+			{
+				phi = (phi + fhigh[k]) * t / (k + 4);
+			}
+			phi = (phi + f2) * t / 3.;
+			phi = (phi + f1) * t / 2.;
+			phi = (phi + f0) * t;
+			return phi;
+		}
+		/**
+		 * @brief spin frequency (Hz) of the polynomial at t seconds from the reference epoch
+		 */
+		long double get_poly_freq(long double t) const
+		{
+			long double f = 0.;
+			for (long int k=fhigh.size()-1; k>=0; k--)
+			{
+				f = (f + fhigh[k]) * t / (k + 3);
+			}
+			f = (f + f2) * t / 2.;
+			f = (f + f1) * t;
+			f += f0;
+			return f;
+		}
 	private:
 		double get_phase(MJD mjd, MJD &mjdref)
 		{
@@ -103,7 +134,7 @@ namespace Pulsar
 			else
 			{
 				long double t = (mjd-mjdref).to_second();
-				double phi = f0*t + 0.5*f1*t*t + f2*t*t*t/6.;
+				double phi = get_poly_phase(t);
 				phi -= floor(phi);
 				return phi;
 			}
@@ -122,7 +153,7 @@ namespace Pulsar
 			else
 			{
 				long double t = (mjd-mjdref).to_second();
-				double f = f0 + f1*t + 0.5*f2*t;
+				double f = get_poly_freq(t);
 				return f;
 			}
 		}
@@ -130,9 +161,23 @@ namespace Pulsar
 		{
 			long double t = (start_time.to_second()+end_time.to_second())/2.;
 			t -= ref_epoch.to_second();
-			long int phi = floor(f0*t+0.5*f1*t*t+f2*t*t*t/6.);
+			long int phi = floor(get_poly_phase(t));
 			long double tepoch = 0.;
-			if (f1 != 0 || f2 != 0)
+			if (!fhigh.empty())
+			{
+				/* time near t where the polynomial phase is the integer phi (Newton) */
+				int n = 16;
+				tepoch = t;
+				long double dt = 1.;
+				while (std::abs(dt) > 1e-9 && --n >= 0)
+				{
+					long double f = get_poly_freq(tepoch);
+					if (f == 0.) break;
+					dt = (phi - get_poly_phase(tepoch)) / f;
+					tepoch += dt;
+				}
+			}
+			else if (f1 != 0 || f2 != 0)
 			{
 				if (f2 == 0)
 				{
@@ -169,6 +214,7 @@ namespace Pulsar
 		double f0;
 		double f1;
 		double f2;
+		std::vector<double> fhigh; /* F3, F4, ... (Hz/s^3, Hz/s^4, ...) */
 		double acc;
 		double dm;
 		double snr;
