@@ -15,10 +15,21 @@
  *    Names are case insensitive:
  *        id                  candidate id (not used)
  *        DM                  dispersion measure (pc/cc)
- *        acc | accel         acceleration (m/s/s), used when F1 is zero
  *        F0, F1, ..., Fn     spin frequency (Hz) and its derivatives
  *                            (Hz/s, Hz/s^2, ...) at the reference epoch, to
  *                            any order: phase = sum_k Fk * t^(k+1) / (k+1)!
+ *        acc | accel         line-of-sight acceleration (m/s^2)
+ *        jerk                its first derivative (m/s^3)
+ *        snap                its second derivative (m/s^4)
+ *        crackle             its third derivative (m/s^5)
+ *                            These kinematic columns give the same polynomial
+ *                            as F1 ... F4: with D(t) = acc*t^2/2 + jerk*t^3/6
+ *                            + snap*t^4/24 + crackle*t^5/120 the delay in
+ *                            metres, phase = F0 * (t - D(t)/c), that is
+ *                            F1 = -acc*F0/c, F2 = -jerk*F0/c, F3 = -snap*F0/c,
+ *                            F4 = -crackle*F0/c. A kinematic value is used
+ *                            when the matching Fk is not given or is zero
+ *                            (as acc has always been for F1).
  *        Pb A1 T0 OM ECC     Keplerian orbit (day, lt-sec, MJD, rad, -);
  *                            with these the candidate is folded as a binary
  *                            and F0 is the intrinsic spin frequency
@@ -51,18 +62,19 @@
 #include <boost/algorithm/string.hpp>
 
 #include "archivelite.h"
+#include "constants.h"
 
 namespace Pulsar
 {
 	class CandFile
 	{
 	public:
-		enum ColumnType {SKIP, DM, ACC, FREQ, PB, A1, T0, OM, ECC, SNR};
+		enum ColumnType {SKIP, DM, ACC, KIN, FREQ, PB, A1, T0, OM, ECC, SNR};
 
 		struct Column
 		{
 			ColumnType type;
-			int order; /* k of Fk, for FREQ */
+			int order; /* k of Fk, for FREQ; k of the Fk it stands for, for KIN (jerk 2, snap 3, crackle 4) */
 		};
 
 	public:
@@ -160,6 +172,9 @@ namespace Pulsar
 
 			if (s == "dm") return Column{DM, 0};
 			if (s == "acc" || s == "accel" || s == "acceleration") return Column{ACC, 0};
+			if (s == "jerk") return Column{KIN, 2};
+			if (s == "snap") return Column{KIN, 3};
+			if (s == "crackle") return Column{KIN, 4};
 			if (s == "pb") return Column{PB, 0};
 			if (s == "a1") return Column{A1, 0};
 			if (s == "t0") return Column{T0, 0};
@@ -225,6 +240,7 @@ namespace Pulsar
 			ArchiveLite fdr = base;
 
 			std::map<int, double> freqs;
+			std::map<int, double> kins;
 			double pb = 0., a1 = 0., t0 = 0., om = 0., ecc = 0.;
 			bool has_pb = false, has_a1 = false, has_t0 = false;
 
@@ -247,6 +263,7 @@ namespace Pulsar
 				case DM: fdr.dm = value; break;
 				case ACC: fdr.acc = value; break;
 				case FREQ: freqs[cols[k].order] = value; break;
+				case KIN: kins[cols[k].order] = value; break;
 				case PB: pb = value; has_pb = true; break;
 				case A1: a1 = value; has_a1 = true; break;
 				case T0: t0 = value; has_t0 = true; break;
@@ -255,6 +272,14 @@ namespace Pulsar
 				case SNR: fdr.snr = value; break;
 				default: break;
 				}
+			}
+
+			/* kinematic terms above the acceleration: Fk = -value * F0 / c, where Fk is not given or zero
+			 * (the acceleration itself is applied to F1 by ArchiveLite::prepare) */
+			for (auto kin=kins.begin(); kin!=kins.end(); ++kin)
+			{
+				if (freqs.count(kin->first) == 0 || freqs[kin->first] == 0.)
+					freqs[kin->first] = -kin->second * freqs[0] / CONST_C;
 			}
 
 			/* the spin polynomial: a derivative the line does not give is zero once the line gives a higher one */
