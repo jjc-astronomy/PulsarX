@@ -11,10 +11,12 @@
 
 #include <fstream>
 #include <vector>
+#include <string>
 
 #include "dedispersionlite.h"
 #include "predictor.h"
 #include "kepler.h"
+#include "constants.h"
 #include "mjd.h"
 
 using namespace std;
@@ -119,6 +121,49 @@ namespace Pulsar
 			f = (f + f1) * t;
 			f += f0;
 			return f;
+		}
+		/**
+		 * @brief Fk of the spin polynomial (F0, F1, F2 and the higher derivatives), zero beyond the last one
+		 */
+		double get_fn(int k) const
+		{
+			if (k == 0) return f0;
+			if (k == 1) return f1;
+			if (k == 2) return f2;
+			if (k >= 3 && k-3 < (long int)fhigh.size()) return fhigh[k-3];
+			return 0.;
+		}
+		/**
+		 * @brief order of the highest non-zero derivative of the spin polynomial (0 for a constant frequency)
+		 */
+		int get_max_order() const
+		{
+			for (int k=fhigh.size()+2; k>=1; k--)
+			{
+				if (get_fn(k) != 0.) return k;
+			}
+			return 0;
+		}
+		/**
+		 * @brief the kinematic equivalent of Fk: the (k-1)th time derivative of the line-of-sight
+		 * acceleration in m/s^(k+1), -Fk/F0*c (k = 1 acceleration, 2 jerk, 3 snap, 4 crackle)
+		 */
+		double get_kinematic(int k) const
+		{
+			if (f0 == 0.) return 0.;
+			return -get_fn(k) / f0 * CONST_C;
+		}
+		static std::string get_kinematic_name(int k)
+		{
+			switch (k)
+			{
+			case 1: return "acc";
+			case 2: return "jerk";
+			case 3: return "snap";
+			case 4: return "crackle";
+			case 5: return "pop";
+			default: return "kin" + std::to_string(k);
+			}
 		}
 	private:
 		double get_phase(MJD mjd, MJD &mjdref)

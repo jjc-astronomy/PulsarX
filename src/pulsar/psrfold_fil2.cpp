@@ -797,6 +797,20 @@ int main(int argc, const char *argv[])
 
 	if (vm.count("output_width"))
 		outfile<<" boxcar_width";
+
+	/* terms of the spin polynomial above F1, as folded (they are not searched): Fn in Hz/s^n,
+	 * then the same terms as derivatives of the line-of-sight acceleration (-Fn/F0*c, m/s^(n+1)).
+	 * Only when a candidate has them, so the table of an F0/F1 fold is unchanged. */
+	int maxorder = 0;
+	for (long int k=0; k<ncand; k++)
+	{
+		if (!folder[k].use_kepler && !folder[k].use_t2pred)
+			maxorder = std::max(maxorder, folder[k].get_max_order());
+	}
+	for (int n=2; n<=maxorder; n++)
+		outfile<<" f"<<n;
+	for (int n=2; n<=maxorder; n++)
+		outfile<<" "<<Pulsar::ArchiveLite::get_kinematic_name(n);
 	
 	outfile<<std::endl;
 
@@ -866,7 +880,19 @@ int main(int argc, const char *argv[])
 		outfile<<fixed<<setprecision(5)<<folder[k].snr<<"\t\t";
 		outfile<<fixed<<setprecision(5)<<gridsearch[k].snr;
 		if (vm.count("output_width"))
-			outfile<<"\t\t"<<fixed<<setprecision(5)<<gridsearch[k].width<<endl;
+			outfile<<"\t\t"<<fixed<<setprecision(5)<<gridsearch[k].width;
+		if (maxorder >= 2)
+		{
+			bool poly = !folder[k].use_kepler && !folder[k].use_t2pred;
+			outfile<<std::scientific<<setprecision(16);
+			for (int n=2; n<=maxorder; n++)
+				outfile<<"\t\t"<<(poly ? folder[k].get_fn(n) : 0.);
+			for (int n=2; n<=maxorder; n++)
+				outfile<<"\t\t"<<(poly ? folder[k].get_kinematic(n) : 0.);
+			outfile<<fixed;
+		}
+		if (vm.count("output_width"))
+			outfile<<endl;
 
 		outfile<<std::endl;
 

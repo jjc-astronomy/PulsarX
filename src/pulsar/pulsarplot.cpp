@@ -9,6 +9,7 @@
 #include <fstream>
 #include <string.h>
 #include <sstream>
+#include <iomanip>
 #include <cmath>
 
 #include "config.h"
@@ -413,13 +414,21 @@ void PulsarPlot::plot(const ArchiveLite &archive, GridSearch &gridsearch, std::m
 	ax8.annotate("S/N = " + s_snr, 0.02, 0.03, {{"fontsize", fontsize}});
 	ax8.annotate("Source name = " + obsinfo["Source_name"], 0.46, 0.91, {{"fontsize", fontsize}});
 	ax8.annotate("Date (MJD) = " + obsinfo["Date"], 0.46, 0.80, {{"fontsize", fontsize}});
-	ax8.annotate("GL (deg) = " + s_gl, 0.46, 0.69, {{"fontsize", fontsize}});
-	ax8.annotate("GB (deg) = " + s_gb, 0.46, 0.58, {{"fontsize", fontsize}});
-	ax8.annotate("F0 (Hz) = " + s_f0, 0.46, 0.47, {{"fontsize", fontsize}});
-	ax8.annotate("F1 (Hz/s) = " + s_f1, 0.46, 0.36, {{"fontsize", fontsize}});
-	ax8.annotate("MaxDM YMW16  (pc/cc) = " + s_ymw16_maxdm, 0.46, 0.25, {{"fontsize", fontsize}});
-	ax8.annotate("Distance YMW16 (pc) = " + s_ymw16_dist, 0.46, 0.14, {{"fontsize", fontsize}});
-	ax8.annotate("Pepoch (MJD) = " + obsinfo["Pepoch"], 0.46, 0.03, {{"fontsize", fontsize}});
+	ax8.annotate("Pepoch (MJD) = " + obsinfo["Pepoch"], 0.46, 0.69, {{"fontsize", fontsize}});
+	ax8.annotate("F0 (Hz) = " + s_f0, 0.46, 0.58, {{"fontsize", fontsize}});
+	ax8.annotate("F1 (Hz/s) = " + s_f1, 0.46, 0.47, {{"fontsize", fontsize}});
+
+	/* terms of the spin polynomial above F1, as folded (they are not searched), as derivatives of the
+	 * line-of-sight acceleration: jerk, snap, crackle, pop = -Fn/F0*c for n = 2, 3, 4, 5 */
+	int maxorder = (archive.use_kepler || archive.use_t2pred) ? 0 : archive.get_max_order();
+	for (int n=2; n<=maxorder && n<=5; n++)
+	{
+		std::stringstream ss_kin;
+		/* \\u ... \\d: PGPLOT superscript */
+		ss_kin<<ArchiveLite::get_kinematic_name(n)<<" (m/s\\u"<<n+1<<"\\d) = "
+			<<std::scientific<<std::setprecision(6)<<archive.get_kinematic(n);
+		ax8.annotate(ss_kin.str(), 0.46, 0.36-0.11*(n-2), {{"fontsize", fontsize}});
+	}
 
 	ax8.annotate(obsinfo["Filename"], 0.07, 0.97, {{"xycoords","figure fraction"}, {"fontsize", "0.45"}});
 	fig.push(ax8);
